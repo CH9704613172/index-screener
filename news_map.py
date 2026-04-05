@@ -1,5 +1,6 @@
 import streamlit as st
-import feedparser
+import urllib.request
+import xml.etree.ElementTree as ET
 import pytz
 import plotly.graph_objects as go
 from datetime import datetime
@@ -175,21 +176,41 @@ def get_market_news():
         )
     }
 
+    def fetch_rss(url):
+        """Fetch and parse RSS feed using only Python built-ins."""
+        try:
+            req  = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read()
+            root   = ET.fromstring(raw)
+            ns     = {"atom": "http://www.w3.org/2005/Atom"}
+            titles = []
+
+            # Standard RSS  <item><title>
+            for item in root.iter("item"):
+                t = item.findtext("title", "").strip()
+                if t and len(t) > 20:
+                    titles.append(t)
+                if len(titles) >= 4:
+                    break
+
+            # Atom feeds  <entry><title>
+            if not titles:
+                for entry in root.iter("{http://www.w3.org/2005/Atom}entry"):
+                    t = entry.findtext("{http://www.w3.org/2005/Atom}title", "").strip()
+                    if t and len(t) > 20:
+                        titles.append(t)
+                    if len(titles) >= 4:
+                        break
+
+            return titles
+        except Exception:
+            return []
+
     for tag, urls in RSS_SOURCES.items():
         for url in urls:
-            try:
-                feed = feedparser.parse(url, request_headers=HEADERS)
-                count = 0
-                for entry in feed.entries:
-                    title = (entry.get("title") or "").strip()
-                    # Skip empty, very short, or duplicate titles
-                    if title and len(title) > 20:
-                        headlines.append((tag, title))
-                        count += 1
-                    if count >= 4:   # max 4 headlines per feed
-                        break
-            except Exception:
-                pass
+            for title in fetch_rss(url):
+                headlines.append((tag, title))
 
     # Deduplicate
     seen, unique = set(), []
